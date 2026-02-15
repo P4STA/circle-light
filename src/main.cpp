@@ -11,7 +11,7 @@
 #endif
 
 // === NeoPixel config ===
-#define PIN        D0
+#define PIN        D2
 #define NUMPIXELS  24
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
@@ -19,6 +19,13 @@ Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 #define IR_RECEIVE_PIN D1
 IRrecv irrecv(IR_RECEIVE_PIN);
 decode_results irResults;
+
+// === Motor config ===
+#define MOTOR_PIN D7
+#define MOTOR_SPEED_LEVELS 5
+static uint8_t motorSpeedLevel = 0;  // 0-4 (off to max)
+// PWM values for each speed level (0, 64, 128, 192, 255)
+const uint8_t motorSpeedPWM[MOTOR_SPEED_LEVELS] = {0, 64, 128, 192, 255};
 
 // === Remote codes (NEC) ===
 // Row 1
@@ -56,7 +63,6 @@ static uint8_t numberModifier = 2;
 static bool fadeEnabled = false;
 static bool oppositeHueEnabled = false;
 static bool randomColorsEnabled = true;
-static bool isOn = true;
 static uint8_t brightness = 128;
 
 // Hue-based color storage
@@ -93,9 +99,18 @@ uint16_t oppositeHue(uint16_t hue) {
   return hue + 32768; // Wraps naturally due to uint16_t overflow
 }
 
-void applyPowerState() {
-  pixels.setBrightness(isOn ? brightness : 0);
+void applyBrightness() {
+  pixels.setBrightness(brightness);
   pixels.show();
+}
+
+void updateMotorSpeed() {
+  analogWrite(MOTOR_PIN, motorSpeedPWM[motorSpeedLevel]);
+  Serial.print("Motor speed level: ");
+  Serial.print(motorSpeedLevel);
+  Serial.print(" (PWM: ");
+  Serial.print(motorSpeedPWM[motorSpeedLevel]);
+  Serial.println(")");
 }
 
 void setHue(uint16_t hue, uint8_t sat) {
@@ -111,8 +126,14 @@ void handleIRCode(uint32_t code) {
   Serial.println(code, HEX);
   
   switch (code) {
-    case IR_ON:    isOn = true; applyPowerState(); break;
-    case IR_OFF:   isOn = false; applyPowerState(); break;
+    case IR_ON:
+      if (motorSpeedLevel < MOTOR_SPEED_LEVELS - 1) motorSpeedLevel++;
+      updateMotorSpeed();
+      break;
+    case IR_OFF:
+      if (motorSpeedLevel > 0) motorSpeedLevel--;
+      updateMotorSpeed();
+      break;
 
     // Color buttons
     case IR_R1: setHue(HUE_RED, 255); break;
@@ -165,17 +186,17 @@ void handleIRCode(uint32_t code) {
 
     case IR_DIM:
       if (brightness >= 16) brightness -= 16; else brightness = 0;
-      applyPowerState();
+      applyBrightness();
       break;
     case IR_BRIGHT:
       if (brightness <= 239) brightness += 16; else brightness = 255;
-      applyPowerState();
+      applyBrightness();
       break;
   }
 }
 
 void animationStaticColor() {
-  pixels.setBrightness(isOn ? brightness : 0);
+  pixels.setBrightness(brightness);
   uint32_t color1 = hueToColor(currentHue, currentSat);
   uint32_t color2 = oppositeHueEnabled ? hueToColor(oppositeHue(currentHue), currentSat) : color1;
   
@@ -186,7 +207,7 @@ void animationStaticColor() {
 }
 
 void animationNLEDSGROUP() {
-  pixels.setBrightness(isOn ? brightness : 0);
+  pixels.setBrightness(brightness);
   uint32_t color1 = hueToColor(currentHue, currentSat);
   uint32_t color2 = oppositeHueEnabled ? hueToColor(oppositeHue(currentHue), currentSat) : color1;
   
@@ -205,7 +226,7 @@ void animationNLEDSGROUP() {
 }
 
 void animationNLEDSGAPS() {
-  pixels.setBrightness(isOn ? brightness : 0);
+  pixels.setBrightness(brightness);
   uint32_t color1 = hueToColor(currentHue, currentSat);
   uint32_t color2 = oppositeHueEnabled ? hueToColor(oppositeHue(currentHue), currentSat) : color1;
   
@@ -230,7 +251,7 @@ void animationNLEDSGAPS() {
 }
 
 void animationFadedMirror() {
-  pixels.setBrightness(isOn ? brightness : 0);
+  pixels.setBrightness(brightness);
   uint16_t hue2 = oppositeHueEnabled ? oppositeHue(currentHue) : currentHue;
   
   for (int j = 0; j < NUMPIXELS; j++) {
@@ -256,7 +277,7 @@ void animationRainbow() {
     rainbowOffset += 256;
   }
   
-  pixels.setBrightness(isOn ? brightness : 0);
+  pixels.setBrightness(brightness);
   for (int i = 0; i < NUMPIXELS; i++) {
     uint16_t hue = ((uint32_t)i * 65536UL / NUMPIXELS) + rainbowOffset;
     pixels.setPixelColor(i, pixels.gamma32(pixels.ColorHSV(hue)));
@@ -299,7 +320,7 @@ void animationRandom() {
     uint8_t sat = randomColorsEnabled ? 255 : currentSat;
     pixels.setPixelColor(i, pixels.gamma32(pixels.ColorHSV(ledHues[i], sat, ledBrightness[i])));
   }
-  pixels.setBrightness(isOn ? brightness : 0);
+  pixels.setBrightness(brightness);
   pixels.show();
 }
 
@@ -307,6 +328,11 @@ void setup() {
   Serial.begin(115200);
   pixels.begin();
   irrecv.enableIRIn();
+  
+  // Motor setup
+  pinMode(MOTOR_PIN, OUTPUT);
+  analogWriteFrequency(20000);  // 20kHz PWM
+  analogWrite(MOTOR_PIN, 0);    // Start with motor off
 }
 
 void loop() {
@@ -317,8 +343,6 @@ void loop() {
     }
     irrecv.resume();
   }
-
-  if (!isOn) return;
 
   static uint32_t lastAnimationMs = 0;
   uint32_t nowMs = millis();
