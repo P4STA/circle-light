@@ -22,10 +22,10 @@ decode_results irResults;
 
 // === Motor config ===
 #define MOTOR_PIN D7
-#define MOTOR_SPEED_LEVELS 5
+#define MOTOR_SPEED_LEVELS 4
 static uint8_t motorSpeedLevel = 0;  // 0-4 (off to max)
 // PWM values for each speed level (0, 64, 128, 192, 255)
-const uint8_t motorSpeedPWM[MOTOR_SPEED_LEVELS] = {0, 64, 128, 192, 255};
+const uint8_t motorSpeedPWM[MOTOR_SPEED_LEVELS] = {0, 128, 192, 255};
 
 // === Remote codes (NEC) ===
 // Row 1
@@ -185,11 +185,11 @@ void handleIRCode(uint32_t code) {
       break;
 
     case IR_DIM:
-      if (brightness >= 16) brightness -= 16; else brightness = 0;
+      if (brightness >= 64) brightness -= 64; else brightness = 0;
       applyBrightness();
       break;
     case IR_BRIGHT:
-      if (brightness <= 239) brightness += 16; else brightness = 255;
+      if (brightness <= 191) brightness += 64; else brightness = 255;
       applyBrightness();
       break;
   }
@@ -274,7 +274,7 @@ void animationRainbow() {
   static uint16_t rainbowOffset = 0;
   
   if (fadeEnabled) {
-    rainbowOffset += 256;
+    rainbowOffset += 64;
   }
   
   pixels.setBrightness(brightness);
@@ -353,7 +353,7 @@ void loop() {
   if (fadeEnabled && currentMode != 4) {
     if (nowMs - lastHueCycleMs >= 50) {
       lastHueCycleMs = nowMs;
-      currentHue += 256;
+      currentHue += 64;
       currentSat = 255; // Full saturation when cycling
     }
   }
