@@ -11,21 +11,38 @@
 #endif
 
 // === NeoPixel config ===
-#define PIN        D2
+#define PIN        20
 #define NUMPIXELS  24
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 // === IR receiver config ===
-#define IR_RECEIVE_PIN D1
+#define IR_RECEIVE_PIN 10
 IRrecv irrecv(IR_RECEIVE_PIN);
 decode_results irResults;
 
-// === Motor config ===
-#define MOTOR_PIN D7
-#define MOTOR_SPEED_LEVELS 4
-static uint8_t motorSpeedLevel = 0;  // 0-4 (off to max)
-// PWM values for each speed level (0, 64, 128, 192, 255)
-const uint8_t motorSpeedPWM[MOTOR_SPEED_LEVELS] = {0, 128, 192, 255};
+// === Stepper motor config (28BYJ-48 + ULN2003) ===
+#define STEPPER_PIN1 2
+#define STEPPER_PIN2 3
+#define STEPPER_PIN3 4
+#define STEPPER_PIN4 5
+#define STEPPER_SPEED_LEVELS 4
+static uint8_t motorSpeedLevel = 0;  // 0 = off, 1-3 = slow to fast
+// Step interval in ms for each speed level (0 = stopped)
+const uint16_t stepIntervalMs[STEPPER_SPEED_LEVELS] = {0, 10, 5, 2};
+static int stepIndex = 0;
+static uint32_t lastStepMs = 0;
+
+// Half-step sequence for 28BYJ-48 (8 phases)
+const uint8_t halfStepSeq[8][4] = {
+  {1, 0, 0, 0},
+  {1, 1, 0, 0},
+  {0, 1, 0, 0},
+  {0, 1, 1, 0},
+  {0, 0, 1, 0},
+  {0, 0, 1, 1},
+  {0, 0, 0, 1},
+  {1, 0, 0, 1}
+};
 
 // === Remote codes (NEC) ===
 // Row 1
@@ -104,13 +121,39 @@ void applyBrightness() {
   pixels.show();
 }
 
+void stepperWrite(int step) {
+  digitalWrite(STEPPER_PIN1, halfStepSeq[step][0]);
+  digitalWrite(STEPPER_PIN2, halfStepSeq[step][1]);
+  digitalWrite(STEPPER_PIN3, halfStepSeq[step][2]);
+  digitalWrite(STEPPER_PIN4, halfStepSeq[step][3]);
+}
+
+void stepperStop() {
+  digitalWrite(STEPPER_PIN1, LOW);
+  digitalWrite(STEPPER_PIN2, LOW);
+  digitalWrite(STEPPER_PIN3, LOW);
+  digitalWrite(STEPPER_PIN4, LOW);
+}
+
 void updateMotorSpeed() {
-  analogWrite(MOTOR_PIN, motorSpeedPWM[motorSpeedLevel]);
+  if (motorSpeedLevel == 0) {
+    stepperStop();
+  }
   Serial.print("Motor speed level: ");
   Serial.print(motorSpeedLevel);
-  Serial.print(" (PWM: ");
-  Serial.print(motorSpeedPWM[motorSpeedLevel]);
-  Serial.println(")");
+  Serial.print(" (interval: ");
+  Serial.print(stepIntervalMs[motorSpeedLevel]);
+  Serial.println(" ms)");
+}
+
+void stepperUpdate() {
+  if (motorSpeedLevel == 0) return;
+  uint32_t nowMs = millis();
+  if (nowMs - lastStepMs >= stepIntervalMs[motorSpeedLevel]) {
+    lastStepMs = nowMs;
+    stepIndex = (stepIndex + 1) % 8;
+    stepperWrite(stepIndex);
+  }
 }
 
 void setHue(uint16_t hue, uint8_t sat) {
@@ -127,7 +170,7 @@ void handleIRCode(uint32_t code) {
   
   switch (code) {
     case IR_ON:
-      if (motorSpeedLevel < MOTOR_SPEED_LEVELS - 1) motorSpeedLevel++;
+      if (motorSpeedLevel < STEPPER_SPEED_LEVELS - 1) motorSpeedLevel++;
       updateMotorSpeed();
       break;
     case IR_OFF:
@@ -329,13 +372,17 @@ void setup() {
   pixels.begin();
   irrecv.enableIRIn();
   
-  // Motor setup
-  pinMode(MOTOR_PIN, OUTPUT);
-  analogWriteFrequency(20000);  // 20kHz PWM
-  analogWrite(MOTOR_PIN, 0);    // Start with motor off
+  // Stepper motor setup
+  pinMode(STEPPER_PIN1, OUTPUT);
+  pinMode(STEPPER_PIN2, OUTPUT);
+  pinMode(STEPPER_PIN3, OUTPUT);
+  pinMode(STEPPER_PIN4, OUTPUT);
+  stepperStop();
 }
 
 void loop() {
+  stepperUpdate();
+
   if (irrecv.decode(&irResults)) {
     uint32_t value = irResults.value;
     if (value != 0xFFFFFFFF) {
