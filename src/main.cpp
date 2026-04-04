@@ -249,25 +249,6 @@ void animationStaticColor() {
   pixels.show();
 }
 
-void animationNLEDSGROUP() {
-  pixels.setBrightness(brightness);
-  uint32_t color1 = hueToColor(currentHue, currentSat);
-  uint32_t color2 = oppositeHueEnabled ? hueToColor(oppositeHue(currentHue), currentSat) : color1;
-  
-  for (int i = 0; i < NUMPIXELS; i++) {
-    bool inGroup1 = (i < numberModifier);
-    bool inGroup2 = (i >= 12 && i < 12 + numberModifier);
-    if (inGroup1) {
-      pixels.setPixelColor(i, color1);
-    } else if (inGroup2) {
-      pixels.setPixelColor(i, color2);
-    } else {
-      pixels.setPixelColor(i, 0);
-    }
-  }
-  pixels.show();
-}
-
 void animationNLEDSGAPS() {
   pixels.setBrightness(brightness);
   uint32_t color1 = hueToColor(currentHue, currentSat);
@@ -367,6 +348,20 @@ void animationRandom() {
   pixels.show();
 }
 
+void animationMovingWave() {
+  static float waveOffset = 0.0f;
+  waveOffset += 0.008f;
+
+  pixels.setBrightness(brightness);
+  for (int i = 0; i < NUMPIXELS; i++) {
+    float angle = (2.0f * PI * i / NUMPIXELS) + waveOffset;
+    float factor = (1.0f + sinf(angle)) / 2.0f; // 0.0 to 1.0
+    uint8_t val = 10 + (uint8_t)(factor * 245);  // min 10, max 255
+    pixels.setPixelColor(i, pixels.gamma32(pixels.ColorHSV(currentHue, currentSat, val)));
+  }
+  pixels.show();
+}
+
 void setup() {
   Serial.begin(115200);
   pixels.begin();
@@ -407,10 +402,10 @@ void loop() {
 
   switch (currentMode) {
     case 0: animationStaticColor(); break;
-    case 1: animationNLEDSGROUP(); break;
-    case 2: animationNLEDSGAPS(); break;
-    case 3: animationFadedMirror(); break;
-    case 4: animationRainbow(); break;
-    case 5: animationRandom(); break;
+    case 1: animationNLEDSGAPS(); break;
+    case 2: animationFadedMirror(); break;
+    case 3: animationRainbow(); break;
+    case 4: animationRandom(); break;
+    case 5: animationMovingWave(); break;
   }
 }
